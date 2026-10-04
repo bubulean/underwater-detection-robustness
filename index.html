@@ -1,0 +1,787 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Underwater Detection Robustness</title>
+<meta name="description" content="Cross-Domain Robustness of CNN vs Transformer Detectors for Underwater Object Detection — YOLOv8 vs DETR on DUO and RUOD under domain shift, physically motivated corruptions, and label noise.">
+<meta property="og:title" content="Cross-Domain Robustness of CNN vs Transformer Detectors for Underwater Object Detection">
+<meta property="og:description" content="YOLOv8 vs DETR across DUO↔RUOD transfer, underwater corruptions, and noisy labels, plus a raw↔enhanced consistency + noise-aware training method.">
+<meta property="og:image" content="assets/unlabelled.jpg">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M2 20c4-4 8-4 12 0s8 4 12 0 4-2 4-2' stroke='%232a78d6' stroke-width='3' fill='none' stroke-linecap='round'/><path d='M2 12c4-4 8-4 12 0s8 4 12 0' stroke='%232a78d6' stroke-width='3' fill='none' stroke-linecap='round' opacity='.5'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<style>
+:root {
+  color-scheme: light;
+  --bg: #fdfcfa;
+  --surface: #f8f7f3;
+  --surface-2: #f1efea;
+  --border: #e6e3dc;
+  --text: #1c1b19;
+  --text-2: #55534e;
+  --text-3: #807d76;
+  --accent: #2a72cc;
+  --accent-soft: #e7eef8;
+  --s1: #2a78d6;   /* YOLO */
+  --s2: #eb6834;   /* DETR */
+  --grid: #ebe8e2;
+  --btn-bg: #f3f1ec;
+  --btn-hover: #e9e6df;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #141413;
+  --surface: #1c1c1a;
+  --surface-2: #242422;
+  --border: #34342f;
+  --text: #f3f2ee;
+  --text-2: #c3c2b7;
+  --text-3: #8d8c84;
+  --accent: #5a9cec;
+  --accent-soft: #1c2b3e;
+  --s1: #3987e5;
+  --s2: #d95926;
+  --grid: #2a2a27;
+  --btn-bg: #242422;
+  --btn-hover: #2e2e2b;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 16px/1.65 Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code, .mono { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: .88em; }
+img { max-width: 100%; display: block; }
+
+.wrap { max-width: 980px; margin: 0 auto; padding: 0 16px; }
+.narrow { max-width: 760px; margin: 0 auto; }
+
+/* ---------- hero ---------- */
+header.hero { padding: 72px 0 40px; text-align: center; }
+.venue { display: inline-block; font-size: 13px; font-weight: 500; letter-spacing: .04em; text-transform: uppercase; color: var(--text-3); margin-bottom: 18px; }
+h1 {
+  font-family: "Source Serif 4", Georgia, serif; font-weight: 600;
+  font-size: clamp(30px, 5.2vw, 48px); line-height: 1.14; letter-spacing: -.015em;
+  margin: 0 auto 26px; max-width: 880px; text-wrap: balance;
+}
+.authors { font-size: 17px; margin: 0 0 6px; }
+.authors span { white-space: nowrap; }
+.authors span:not(:last-child)::after { content: ","; margin-right: .4em; }
+.affil { color: var(--text-2); font-size: 15px; margin: 0; }
+.buttons { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 30px; }
+.btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 9px 18px; border-radius: 999px;
+  background: var(--btn-bg); color: var(--text); font-weight: 500; font-size: 15px;
+  border: 1px solid var(--border); transition: background .12s ease, transform .12s ease;
+}
+.btn:hover { text-decoration: none; background: var(--btn-hover); transform: translateY(-1px); }
+.btn.ghost { background: transparent; }
+.btn.ghost:hover { background: var(--btn-bg); }
+.btn svg { width: 17px; height: 17px; flex: none; }
+.btn small { font-weight: 400; opacity: .7; font-size: 12.5px; }
+
+.theme-toggle {
+  position: fixed; top: 16px; right: 16px; z-index: 20;
+  width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--surface); color: var(--text-2); border: 1px solid var(--border);
+  cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,.06); transition: color .12s, background .12s;
+}
+.theme-toggle:hover { color: var(--text); background: var(--btn-hover); }
+.theme-toggle svg { width: 18px; height: 18px; }
+.theme-toggle .moon { display: block; } .theme-toggle .sun { display: none; }
+:root[data-theme="dark"] .theme-toggle .moon { display: none; }
+:root[data-theme="dark"] .theme-toggle .sun { display: block; }
+
+/* ---------- sections ---------- */
+section { padding: 56px 0 8px; }
+h2 {
+  font-family: "Source Serif 4", Georgia, serif; font-weight: 600;
+  font-size: 28px; letter-spacing: -.01em; margin: 0 0 18px; text-align: center;
+}
+h3 { font-size: 17px; font-weight: 600; margin: 32px 0 10px; }
+p { margin: 0 0 14px; }
+.lead { font-size: 18px; color: var(--text-2); text-align: center; text-wrap: pretty; }
+.abstract { text-align: justify; hyphens: auto; }
+.rq { display: inline-block; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); margin-bottom: 4px; }
+.sec-head { text-align: center; }
+.answer { background: var(--accent-soft); border-radius: 12px; padding: 14px 18px; margin-top: 18px; font-size: 15px; }
+.answer b { color: var(--accent); }
+
+/* ---------- stats ---------- */
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 34px; }
+.stat { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 16px; text-align: center; }
+.stat b { display: block; font-family: "Source Serif 4", Georgia, serif; font-size: 32px; font-weight: 600; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.stat span { display: block; color: var(--text-2); font-size: 13.5px; line-height: 1.4; margin-top: 6px; }
+
+/* ---------- cards ---------- */
+.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 18px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+.card .tag { font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); }
+.card h4 { margin: 4px 0 8px; font-size: 17px; }
+.card p { font-size: 14.5px; color: var(--text-2); margin: 0 0 10px; }
+.card .eq { font-size: 15px; margin: 10px 0 0; overflow-x: auto; overflow-y: hidden; color: var(--text); }
+
+figure { margin: 22px 0 0; }
+figure.framed img { border-radius: 12px; border: 1px solid var(--border); background: #fff; }
+figcaption { color: var(--text-2); font-size: 14px; text-align: center; margin: 12px auto 0; max-width: 760px; }
+
+/* ---------- explorer ---------- */
+.explorer { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 18px; margin-top: 8px; }
+.ex-grid { display: grid; grid-template-columns: 1.45fr 1fr; gap: 20px; align-items: start; }
+.ex-img { position: relative; border-radius: 10px; overflow: hidden; background: #0d2a24; aspect-ratio: 620/347; }
+.ex-img canvas { width: 100%; height: 100%; display: block; }
+.ex-img .badge { position: absolute; left: 10px; top: 10px; background: rgba(0,0,0,.6); color: #fff; font-size: 12.5px; font-weight: 500; padding: 4px 9px; border-radius: 6px; }
+.seg { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.seg button {
+  font: 500 13.5px Inter, sans-serif; padding: 7px 13px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--btn-bg); color: var(--text-2);
+}
+.seg button[aria-pressed="true"] { background: var(--text); color: var(--bg); border-color: var(--text); }
+.slider-row { display: flex; align-items: center; gap: 12px; margin: 4px 0 16px; }
+.slider-row label { font-size: 13.5px; color: var(--text-2); white-space: nowrap; }
+.slider-row output { font-weight: 600; font-variant-numeric: tabular-nums; min-width: 2.2em; }
+input[type=range] { flex: 1; accent-color: var(--accent); }
+.readout { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.ro { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; background: var(--bg); }
+.ro .k { font-size: 12.5px; color: var(--text-2); display: flex; align-items: center; gap: 6px; }
+.ro .k i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.ro .v { font-family: "Source Serif 4", Georgia, serif; font-size: 26px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.ro .d { font-size: 12.5px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.formula { font-size: 13px; color: var(--text-2); margin-top: 12px; min-height: 3.2em; }
+
+/* ---------- charts ---------- */
+.chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 20px 14px; margin-top: 18px; position: relative; }
+.chart-card h4 { margin: 0 0 2px; font-size: 15.5px; }
+.chart-card .sub { margin: 0 0 10px; color: var(--text-2); font-size: 13.5px; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart text { font-family: Inter, system-ui, sans-serif; fill: var(--text-2); font-size: 12px; }
+.chart .axis-title { fill: var(--text-3); font-size: 12px; }
+.chart .lbl { fill: var(--text); font-size: 12.5px; font-weight: 500; }
+.chart .ptitle { fill: var(--text); font-size: 13px; font-weight: 600; }
+.chart .panel { cursor: pointer; }
+.chart .panel-bg { fill: transparent; stroke: transparent; }
+.chart .panel.active .panel-bg { fill: var(--accent-soft); }
+.legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 13px; color: var(--text-2); margin: 0 0 6px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.tip {
+  position: absolute; pointer-events: none; z-index: 5; opacity: 0; transition: opacity .1s;
+  background: var(--text); color: var(--bg); font-size: 12.5px; line-height: 1.45;
+  padding: 8px 10px; border-radius: 8px; white-space: nowrap; box-shadow: 0 4px 16px rgba(0,0,0,.18);
+}
+.hit { fill: transparent; }
+
+/* ---------- tables ---------- */
+.tbl-wrap { overflow-x: auto; margin-top: 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; font-variant-numeric: tabular-nums; }
+th, td { padding: 9px 14px; text-align: right; white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+thead th { font-weight: 600; color: var(--text-2); font-size: 12.5px; text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid var(--border); background: var(--surface-2); }
+tbody tr + tr td { border-top: 1px solid var(--grid); }
+tr.group td { background: var(--surface-2); font-weight: 600; font-size: 13px; color: var(--text-2); }
+td.best { font-weight: 700; }
+td.c { text-align: center; }
+.l, th.l, td.l { text-align: left; }
+.tbl-l2 td:nth-child(2), .tbl-l2 th:nth-child(2) { text-align: left; }
+.delta { font-size: 12px; color: var(--text-3); margin-left: 6px; }
+.note { font-size: 13px; color: var(--text-3); margin-top: 8px; }
+
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+
+/* ---------- audit ---------- */
+.audit { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 18px; }
+
+/* ---------- bibtex ---------- */
+pre.bib {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  padding: 18px 20px; overflow-x: auto; font-size: 13px; line-height: 1.6; margin: 0; position: relative;
+}
+.copy { position: absolute; top: 10px; right: 10px; font: 500 12px Inter, sans-serif; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text-2); cursor: pointer; }
+.copy:hover { color: var(--text); }
+
+ul.limits { padding-left: 20px; margin: 0; color: var(--text-2); }
+ul.limits li { margin-bottom: 6px; }
+
+footer { margin-top: 72px; padding: 28px 0 40px; border-top: 1px solid var(--border); color: var(--text-3); font-size: 13.5px; text-align: center; }
+footer a { color: var(--text-2); }
+
+@media (max-width: 760px) {
+  header.hero { padding-top: 56px; }
+  .stats, .audit { grid-template-columns: repeat(2, 1fr); }
+  .cards, .two, .ex-grid { grid-template-columns: 1fr; }
+  .stat b { font-size: 26px; }
+  th, td { padding: 8px 10px; }
+}
+</style>
+</head>
+<body>
+<script>try{if(localStorage.getItem('theme')==='dark')document.documentElement.dataset.theme='dark'}catch(e){}</script>
+<button class="theme-toggle" type="button" aria-label="Toggle dark mode" title="Toggle dark mode">
+  <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+  <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+</button>
+
+<header class="hero wrap">
+  <div class="venue">MBZUAI · CV703 Final Project · 2026</div>
+  <h1>Cross-Domain Robustness of CNN vs Transformer Detectors for Underwater Object Detection</h1>
+  <p class="authors">
+    <span>Buthaina Almulla</span> <span>Abdulla Alshehhi</span> <span>Shamma Yaqoob</span>
+  </p>
+  <p class="affil">Mohamed bin Zayed University of Artificial Intelligence, Abu Dhabi, UAE</p>
+
+  <nav class="buttons" aria-label="Project links">
+    <a class="btn" href="assets/paper.pdf">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg>
+      Paper
+    </a>
+    <a class="btn" href="https://github.com/bubulean/CV703-Underwater-Research-Project">
+      <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      Code &amp; Weights
+    </a>
+    <a class="btn" href="assets/slides.pptx">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M12 16v4M8 20h8"/></svg>
+      Slides
+    </a>
+    <a class="btn ghost" href="#explorer">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+      Interactive demo
+    </a>
+    <a class="btn ghost" href="#citation">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10 7H6a2 2 0 0 0-2 2v3h6v6H4M20 7h-4a2 2 0 0 0-2 2v3h6v6h-6"/></svg>
+      BibTeX
+    </a>
+  </nav>
+</header>
+
+<main class="wrap">
+
+  <div class="stats narrow">
+    <div class="stat"><b>0.640</b><span>YOLOv8 in-domain mAP on DUO (DETR: 0.426)</span></div>
+    <div class="stat"><b>66.2%</b><span>DETR mAP retained DUO→RUOD (YOLO: 56.4%)</span></div>
+    <div class="stat"><b>−88%</b><span>DETR mAP under severe haze, the worst corruption</span></div>
+    <div class="stat"><b>853</b><span>real objects missing from RUOD labels, found in audit</span></div>
+  </div>
+
+  <section id="abstract" class="narrow">
+    <h2>Abstract</h2>
+    <p class="abstract">Underwater object detection is limited by two compounding problems: strong domain shift across datasets caused by variable water conditions (attenuation, haze, turbidity, and blur), and label noise arising from missed annotations in low-visibility images. We systematically compare a CNN detector (YOLOv8) and a Transformer detector (DETR) under cross-dataset transfer, physically motivated underwater corruptions, and noisy supervision, and propose a training strategy that improves cross-domain robustness without re-annotation. Our method combines (i) a raw↔enhanced feature-consistency loss using a cheap CLAHE-based underwater enhancer as an auxiliary view, and (ii) a noise-aware supervision reweighting that down-weights samples whose raw and enhanced features strongly disagree. Experiments on DUO and RUOD show three main findings. First, YOLO achieves higher absolute performance than DETR in-domain and cross-domain, but relative robustness is direction-dependent: DETR retains more in-domain mAP under DUO→RUOD shift (66.2% vs. 56.4%), whereas YOLO retains more under RUOD→DUO (40.3% vs. 29.9%). Second, haze and turbidity are the most destructive corruptions, while blur is the least harmful. Third, the proposed method is beneficial but detector- and direction-dependent: for DETR, the full method improves DUO→RUOD cross-domain mAP from 0.285 to 0.294 and AP50 from 0.608 to 0.614, whereas for YOLO the best variant is weight only on DUO→RUOD and full on RUOD→DUO.</p>
+  </section>
+
+  <!-- ===================== interactive explorer ===================== -->
+  <section id="explorer">
+    <h2>See what the detectors see</h2>
+    <p class="lead narrow">Pick a corruption and drag the severity. The image is corrupted live in your browser with the paper’s formulas; the numbers are the measured DUO test-set mAP@[.5:.95].</p>
+
+    <div class="explorer">
+      <div class="ex-grid">
+        <div>
+          <div class="ex-img">
+            <canvas id="exCanvas" width="620" height="347" aria-label="Underwater image with selected corruption applied"></canvas>
+            <span class="badge" id="exBadge">Clean</span>
+          </div>
+        </div>
+        <div>
+          <div class="seg" role="group" aria-label="Corruption type">
+            <button type="button" data-c="attenuation" aria-pressed="false">Attenuation</button>
+            <button type="button" data-c="haze" aria-pressed="true">Haze</button>
+            <button type="button" data-c="turbidity" aria-pressed="false">Turbidity</button>
+            <button type="button" data-c="blur" aria-pressed="false">Blur</button>
+          </div>
+          <div class="slider-row">
+            <label for="sev">Severity</label>
+            <input id="sev" type="range" min="0" max="5" step="1" value="0">
+            <output id="sevOut" for="sev">0</output>
+          </div>
+          <div class="readout">
+            <div class="ro"><div class="k"><i style="background:var(--s1)"></i>YOLOv8 mAP</div><div class="v" id="roY">0.640</div><div class="d" id="roYd">clean</div></div>
+            <div class="ro"><div class="k"><i style="background:var(--s2)"></i>DETR mAP</div><div class="v" id="roD">0.426</div><div class="d" id="roDd">clean</div></div>
+          </div>
+          <p class="formula" id="exFormula"></p>
+        </div>
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <h4>mAP vs. corruption severity (DUO test set)</h4>
+      <p class="sub">Severity 0 is the clean test set. Click a panel to load it in the explorer above.</p>
+      <div class="legend"><span><i style="background:var(--s1)"></i>YOLOv8 (CNN)</span><span><i style="background:var(--s2)"></i>DETR (Transformer)</span></div>
+      <div class="chart" id="curves"></div>
+      <div class="tip"></div>
+    </div>
+  </section>
+
+  <!-- ===================== method ===================== -->
+  <section id="method">
+    <div class="sec-head"><h2>Method: dual-view training without re-annotation</h2></div>
+    <p class="lead narrow">Each image is seen twice: raw and through a cheap CLAHE enhancer. The enhancer isn’t treated as ground truth, only as a <em>different view</em>. Feature disagreement between the two views drives both a consistency loss and a per-batch trust weight on the labels.</p>
+
+    <div class="cards">
+      <div class="card">
+        <div class="tag">Second view</div>
+        <h4>CLAHE enhancer</h4>
+        <p>Convert to LAB, apply CLAHE (clip 2.0, 8×8 tiles) to luminance only, convert back. Deterministic, no trainable parameters.</p>
+        <div class="eq" data-tex="x_e = E(x)"></div>
+      </div>
+      <div class="card">
+        <div class="tag">Consistency</div>
+        <h4>Feature-invariance loss</h4>
+        <p>MSE between raw and enhanced features: YOLO backbone (layers 0–9) or DETR encoder last hidden state. Uses no labels.</p>
+        <div class="eq" data-tex="\mathcal{L}_{\text{cons}} = \tfrac{1}{N}\lVert f - f_e \rVert_2^2"></div>
+      </div>
+      <div class="card">
+        <div class="tag">Noise-aware</div>
+        <h4>Disagreement reweighting</h4>
+        <p>Normalize per-image disagreement within the batch, map to a weight (α = 2), and scale the detection loss by the batch mean.</p>
+        <div class="eq" data-tex="w_i = e^{-\alpha\, u_{i,\text{norm}}},\;\; \mathcal{L} = \bar{w}\,\mathcal{L}_{\text{det}} + \lambda\,\mathcal{L}_{\text{cons}}"></div>
+      </div>
+    </div>
+
+    <figure class="framed">
+      <a href="assets/method.jpg"><img src="assets/method.jpg" alt="Implementation diagram of the dual-view training framework for YOLOv8 and DETR" loading="lazy"></a>
+      <figcaption>Implementation details for both detectors. Solid arrows carry gradients; dashed arrows are no-grad. YOLO runs separate backbone passes for the consistency and uncertainty terms; DETR reuses the encoder state from the supervised forward.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ===================== RQ1 ===================== -->
+  <section id="rq1">
+    <div class="sec-head">
+      <div class="rq">RQ1</div>
+      <h2>Which detector family transfers better?</h2>
+    </div>
+
+    <div class="chart-card">
+      <h4>Cross-domain mAP retention</h4>
+      <p class="sub">Cross-domain mAP ÷ matched in-domain mAP, evaluated on the 4 shared classes.</p>
+      <div class="legend"><span><i style="background:var(--s1)"></i>YOLOv8</span><span><i style="background:var(--s2)"></i>DETR</span></div>
+      <div class="chart" id="retention"></div>
+      <div class="tip"></div>
+    </div>
+
+    <div class="tbl-wrap">
+      <table class="tbl-l2">
+        <thead><tr><th>Train → Test</th><th>Model</th><th>AP50</th><th>mAP</th><th>Retention</th></tr></thead>
+        <tbody>
+          <tr class="group"><td colspan="5">In-domain</td></tr>
+          <tr><td>DUO → DUO</td><td>DETR</td><td>0.694</td><td>0.426</td><td>–</td></tr>
+          <tr><td></td><td>YOLOv8</td><td class="best">0.797</td><td class="best">0.640</td><td>–</td></tr>
+          <tr><td>RUOD → RUOD</td><td>DETR</td><td>0.655</td><td>0.351</td><td>–</td></tr>
+          <tr><td></td><td>YOLOv8</td><td class="best">0.862</td><td class="best">0.575</td><td>–</td></tr>
+          <tr class="group"><td colspan="5">Cross-domain (4 shared classes)</td></tr>
+          <tr><td>DUO → RUOD</td><td>DETR</td><td>0.608</td><td>0.282</td><td class="best">66.2%</td></tr>
+          <tr><td></td><td>YOLOv8</td><td class="best">0.629</td><td class="best">0.361</td><td>56.4%</td></tr>
+          <tr><td>RUOD → DUO</td><td>DETR</td><td>0.245</td><td>0.105</td><td>29.9%</td></tr>
+          <tr><td></td><td>YOLOv8</td><td class="best">0.367</td><td class="best">0.232</td><td class="best">40.3%</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">RUOD is pHash-deduplicated against DUO (Hamming ≤ 4 over 18,648 images) before any cross-domain evaluation to avoid train–test leakage.</p>
+
+    <div class="narrow">
+      <h3>Why is DUO → RUOD easier than RUOD → DUO?</h3>
+      <p style="color:var(--text-2)"><b style="color:var(--text)">Annotation density:</b> DUO averages 9.5 boxes/image vs. RUOD’s 4.7, so DUO forces finer discrimination. <b style="color:var(--text)">Label space:</b> RUOD-trained models spread confidence over 10 classes, diluting the 4 shared ones. <b style="color:var(--text)">Visual nesting:</b> DUO’s narrow green palette sits inside RUOD’s broader distribution, so DUO features cover more of RUOD than the reverse.</p>
+      <div class="answer"><b>Answer.</b> YOLO wins in absolute terms in both directions, but relative robustness depends on direction: DETR retains more under DUO→RUOD, YOLO under RUOD→DUO. The reverse transfer is harder for both, especially DETR.</div>
+    </div>
+  </section>
+
+  <!-- ===================== RQ2 ===================== -->
+  <section id="rq2">
+    <div class="sec-head">
+      <div class="rq">RQ2</div>
+      <h2>How do detectors degrade under underwater corruptions?</h2>
+    </div>
+
+    <div class="tbl-wrap">
+      <table class="tbl-l2">
+        <thead><tr><th>Corruption</th><th>What it simulates</th><th>YOLOv8 s=5</th><th>Drop</th><th>DETR s=5</th><th>Drop</th></tr></thead>
+        <tbody>
+          <tr><td>Attenuation</td><td>red-first light absorption</td><td>0.451</td><td>29.5%</td><td>0.272</td><td>36.2%</td></tr>
+          <tr><td>Haze</td><td>backscatter veil</td><td>0.113</td><td>82.3%</td><td>0.053</td><td class="best">87.6%</td></tr>
+          <tr><td>Turbidity</td><td>suspended-particle noise</td><td>0.032</td><td class="best">95.0%</td><td>0.108</td><td>74.6%</td></tr>
+          <tr><td>Blur</td><td>optical softening</td><td>0.523</td><td>18.3%</td><td>0.352</td><td>17.4%</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">Clean mAP: YOLOv8 0.640, DETR 0.426. Drop is the relative reduction from clean to severity 5.</p>
+
+    <div class="narrow">
+      <div class="answer"><b>Answer.</b> Haze is the most catastrophic and blur the most benign; attenuation is moderate. Turbidity shows a severity-dependent inversion: DETR loses more at mild noise, but YOLO collapses more at the extreme. Mild blur even nudges YOLO up, acting as an implicit denoiser.</div>
+    </div>
+  </section>
+
+  <!-- ===================== RQ3 ===================== -->
+  <section id="rq3">
+    <div class="sec-head">
+      <div class="rq">RQ3</div>
+      <h2>Does dual-view training help without re-annotation?</h2>
+    </div>
+
+    <div class="two">
+      <div class="tbl-wrap" style="margin-top:0">
+        <table>
+          <thead><tr><th>DETR · 30 ep</th><th>L<sub>cons</sub></th><th>w</th><th>AP50</th><th>mAP</th></tr></thead>
+          <tbody>
+            <tr class="group"><td colspan="5">DUO → RUOD</td></tr>
+            <tr><td>Baseline</td><td class="c">–</td><td class="c">–</td><td>0.608</td><td>0.285</td></tr>
+            <tr><td>Cons. only</td><td class="c">✓</td><td class="c">–</td><td>0.608</td><td>0.285</td></tr>
+            <tr><td>Weight only</td><td class="c">–</td><td class="c">✓</td><td>0.572</td><td>0.278</td></tr>
+            <tr><td>Full</td><td class="c">✓</td><td class="c">✓</td><td class="best">0.614</td><td class="best">0.294<span class="delta">+0.009</span></td></tr>
+            <tr class="group"><td colspan="5">RUOD → DUO</td></tr>
+            <tr><td>Baseline</td><td class="c">–</td><td class="c">–</td><td class="best">0.245</td><td class="best">0.105</td></tr>
+            <tr><td>Cons. only</td><td class="c">✓</td><td class="c">–</td><td>0.239</td><td>0.086</td></tr>
+            <tr><td>Weight only</td><td class="c">–</td><td class="c">✓</td><td>0.242</td><td>0.098</td></tr>
+            <tr><td>Full</td><td class="c">✓</td><td class="c">✓</td><td>0.236</td><td>0.084</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="tbl-wrap" style="margin-top:0">
+        <table>
+          <thead><tr><th>YOLOv8 · 50 ep</th><th>L<sub>cons</sub></th><th>w</th><th>AP50</th><th>mAP</th></tr></thead>
+          <tbody>
+            <tr class="group"><td colspan="5">DUO → RUOD</td></tr>
+            <tr><td>Baseline</td><td class="c">–</td><td class="c">–</td><td>0.629</td><td>0.361</td></tr>
+            <tr><td>Cons. only</td><td class="c">✓</td><td class="c">–</td><td>0.628</td><td>0.363</td></tr>
+            <tr><td>Weight only</td><td class="c">–</td><td class="c">✓</td><td class="best">0.647</td><td class="best">0.372<span class="delta">+0.011</span></td></tr>
+            <tr><td>Full</td><td class="c">✓</td><td class="c">✓</td><td>0.608</td><td>0.352</td></tr>
+            <tr class="group"><td colspan="5">RUOD → DUO</td></tr>
+            <tr><td>Baseline</td><td class="c">–</td><td class="c">–</td><td>0.367</td><td>0.232</td></tr>
+            <tr><td>Cons. only</td><td class="c">✓</td><td class="c">–</td><td>0.360</td><td>0.230</td></tr>
+            <tr><td>Weight only</td><td class="c">–</td><td class="c">✓</td><td>0.358</td><td>0.229</td></tr>
+            <tr><td>Full</td><td class="c">✓</td><td class="c">✓</td><td class="best">0.374</td><td class="best">0.238<span class="delta">+0.006</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <p class="note">Cross-domain evaluation on the 4 shared classes. Bold marks the best variant per block; deltas are mAP over baseline.</p>
+
+    <div class="narrow">
+      <h3>Why the combination matters</h3>
+      <p style="color:var(--text-2)">Consistency alone barely moves DETR: raw and enhanced features start nearly identical, so the loss gives almost no gradient. Weighting alone has no meaningful uncertainty signal, and at DETR’s batch size of 2 the within-batch normalization collapses <em>w</em> toward 1. Only together does the model get a disagreement signal <em>and</em> use it to trust noisy labels less.</p>
+      <div class="answer"><b>Answer.</b> Yes, but it depends on the detector and the direction. The full method is best for DETR on DUO→RUOD and for YOLO on RUOD→DUO; noise-aware weighting alone is best for YOLO on DUO→RUOD.</div>
+    </div>
+  </section>
+
+  <!-- ===================== label noise ===================== -->
+  <section id="audit">
+    <div class="sec-head"><h2>The benchmark is part of the problem</h2></div>
+    <p class="lead narrow">Cross-domain models often find real objects the human annotators missed, and COCO evaluation counts every one of them as a false positive.</p>
+
+    <figure class="framed">
+      <a href="assets/qualitative.jpg"><img src="assets/qualitative.jpg" alt="Qualitative detection results: in-domain, severe haze, cross-domain with unlabelled objects, and a ground-truth mislabel" loading="lazy"></a>
+      <figcaption><b>Row 1:</b> DETR in-domain localizes dense echinus clusters. <b>Row 2:</b> under severity-5 haze it nearly fails (mAP 0.053). <b>Row 3:</b> YOLO DUO→RUOD; yellow ★ boxes are real objects with no ground-truth label. <b>Row 4:</b> holothurians labelled as starfish; the model is right but doubly penalized.</figcaption>
+    </figure>
+
+    <div class="audit">
+      <div class="stat"><b>120</b><span>RUOD test images manually audited</span></div>
+      <div class="stat"><b>1,212</b><span>high-confidence unmatched predictions reviewed</span></div>
+      <div class="stat"><b>881</b><span>correctly localized but penalized (853 unlabelled + 28 class confusions)</span></div>
+      <div class="stat"><b>+0.086</b><span>mAP on the 21 worst images after fixing 157 missing labels</span></div>
+    </div>
+
+    <div class="two" style="margin-top:4px">
+      <figure class="framed" style="margin-top:14px">
+        <a href="assets/unlabelled.jpg"><img src="assets/unlabelled.jpg" alt="Zoomed view of cross-domain predictions with yellow stars marking unlabelled real objects" loading="lazy"></a>
+        <figcaption>Zoomed: YOLO <em>weight only</em> on RUOD image 005935. Every yellow ★ is a real object counted as a false positive.</figcaption>
+      </figure>
+      <div>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th>Class</th><th>Full GT</th><th>Miss %</th><th>Subset GT</th><th>Miss %</th></tr></thead>
+            <tbody>
+              <tr><td>Holothurian</td><td>15,480</td><td>0.43</td><td>268</td><td>25.0</td></tr>
+              <tr><td>Echinus</td><td>63,584</td><td>0.70</td><td>1,009</td><td>44.1</td></tr>
+              <tr><td>Scallop</td><td>14,704</td><td>1.63</td><td>540</td><td>44.3</td></tr>
+              <tr><td>Starfish</td><td>19,400</td><td>0.53</td><td>339</td><td>30.1</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="note">Missing-label rates are low overall (0.4–1.6%) but jump to 25–44% in the audited subset. The noise is concentrated in specific images, and it is a <em>cross-domain</em> problem: the same correction moves in-domain mAP by &lt; 0.001.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="limitations" class="narrow">
+    <h2>Limitations &amp; future work</h2>
+    <ul class="limits">
+      <li>DETR was trained for only 30 epochs at batch size 2; longer training and batch size ≥ 8 should make the noise-aware weighting meaningful for DETR.</li>
+      <li>Next steps: stronger transformers such as RT-DETR, physics-informed enhancement models, and domain-specific augmentation to reduce CNN texture bias.</li>
+      <li>Evaluation covers 4 shared classes. Re-annotating the RUOD test set with enhanced images as reference would give a cleaner upper bound on true cross-domain performance.</li>
+    </ul>
+  </section>
+
+  <section id="code" class="narrow">
+    <h2>Code</h2>
+    <div class="card">
+      <div class="tag">Reproducible</div>
+      <h4><a href="https://github.com/bubulean/CV703-Underwater-Research-Project">bubulean/CV703-Underwater-Research-Project</a></h4>
+      <p>Trained weights for every DETR and YOLO variant, pHash dedup pipeline for DUO/RUOD, the corruption suite, and eight notebooks covering dataset stats, baselines, cross-domain evaluation, corruption curves, both ablation studies, result visualizations, and the label-noise audit.</p>
+    </div>
+  </section>
+
+  <section id="citation" class="narrow">
+    <h2>Citation</h2>
+    <pre class="bib"><button class="copy" type="button">Copy</button><code id="bibtex">@techreport{almulla2026underwater,
+  title       = {Cross-Domain Robustness of CNN vs Transformer Detectors
+                 for Underwater Object Detection},
+  author      = {Almulla, Buthaina and Alshehhi, Abdulla and Yaqoob, Shamma},
+  institution = {Mohamed bin Zayed University of Artificial Intelligence},
+  address     = {Abu Dhabi, United Arab Emirates},
+  year        = {2026}
+}</code></pre>
+  </section>
+</main>
+
+<footer class="wrap">
+  © 2026 the authors · MBZUAI ·
+  <a href="https://github.com/bubulean/CV703-Underwater-Research-Project">Code</a> ·
+  <a href="assets/paper.pdf">Paper (PDF)</a> ·
+  <a href="assets/slides.pptx">Slides</a>
+</footer>
+
+<script>
+(() => {
+  const NS = 'http://www.w3.org/2000/svg';
+  const el = (tag, attrs = {}, parent) => {
+    const n = document.createElementNS(NS, tag);
+    for (const k in attrs) n.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(n);
+    return n;
+  };
+  const tooltip = card => {
+    const tip = card.querySelector('.tip');
+    return {
+      show(html, evt) {
+        tip.innerHTML = html; tip.style.opacity = 1;
+        const r = card.getBoundingClientRect();
+        let x = evt.clientX - r.left + 14, y = evt.clientY - r.top - 10;
+        if (x + tip.offsetWidth > r.width - 8) x = evt.clientX - r.left - tip.offsetWidth - 14;
+        tip.style.left = x + 'px'; tip.style.top = y + 'px';
+      },
+      hide() { tip.style.opacity = 0; }
+    };
+  };
+
+  /* ---------- data (results/*_Corruptions/robustness_curves.csv) ---------- */
+  const CLEAN = { yolo: 0.640, detr: 0.426 };
+  const CURVES = {
+    attenuation: { yolo: [0.6239, 0.5967, 0.5610, 0.5129, 0.4514], detr: [0.4158, 0.3943, 0.3665, 0.3245, 0.2722] },
+    haze:        { yolo: [0.5973, 0.5098, 0.4204, 0.2937, 0.1129], detr: [0.3901, 0.3225, 0.2382, 0.1507, 0.0533] },
+    turbidity:   { yolo: [0.2297, 0.1145, 0.0692, 0.0453, 0.0320], detr: [0.2424, 0.1806, 0.1473, 0.1227, 0.1076] },
+    blur:        { yolo: [0.6372, 0.6186, 0.5848, 0.5543, 0.5226], detr: [0.4233, 0.4128, 0.3899, 0.3740, 0.3523] },
+  };
+  const NAMES = { attenuation: 'Attenuation', haze: 'Haze', turbidity: 'Turbidity', blur: 'Blur' };
+  const FORMULAS = {
+    attenuation: s => `Channels scaled r×${(1 - .12 * s).toFixed(2)}, g×${(1 - .06 * s).toFixed(2)}, b×${(1 - .02 * s).toFixed(2)}; contrast ×${(1 - .05 * s).toFixed(2)} around 128.`,
+    haze: s => `Blend with blue-white scatter A = [0.60, 0.75, 0.85] at α = ${(.08 * s).toFixed(2)}, then contrast ×${(1 - .15 * s).toFixed(2)}.`,
+    turbidity: s => `Additive Gaussian noise, σ = ${5 + 6 * s} on 0–255.`,
+    blur: s => `Gaussian blur, kernel ${1 + 2 * s}×${1 + 2 * s}.`,
+  };
+  const val = (m, c, s) => s === 0 ? CLEAN[m] : CURVES[c][m][s - 1];
+
+  const state = { c: 'haze', s: 0 };
+  const listeners = [];
+  const setState = patch => { Object.assign(state, patch); listeners.forEach(f => f()); };
+
+  /* ---------- explorer: live corruption on canvas ---------- */
+  (function explorer() {
+    const cv = document.getElementById('exCanvas');
+    const ctx = cv.getContext('2d', { willReadFrequently: true });
+    const W = cv.width, H = cv.height;
+    let base = null, noise = null;
+    const img = new Image();
+    img.onload = () => {
+      ctx.drawImage(img, 0, 0, W, H);
+      try { base = ctx.getImageData(0, 0, W, H); } catch (e) { base = null; }
+      // fixed standard-normal field so noise is stable while sliding
+      noise = new Float32Array(W * H * 3);
+      let seed = 12345;
+      const rnd = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296;
+      for (let i = 0; i < noise.length; i += 2) {
+        const u = Math.max(rnd(), 1e-9), v = rnd(), r = Math.sqrt(-2 * Math.log(u));
+        noise[i] = r * Math.cos(2 * Math.PI * v);
+        if (i + 1 < noise.length) noise[i + 1] = r * Math.sin(2 * Math.PI * v);
+      }
+      render();
+    };
+    img.src = 'assets/sample.jpg';
+
+    function gaussBlur(src, k) {
+      const sigma = 0.3 * ((k - 1) * 0.5 - 1) + 0.8;     // OpenCV default for sigma=0
+      const r = (k - 1) / 2, w = [];
+      let sum = 0;
+      for (let i = -r; i <= r; i++) { const v = Math.exp(-(i * i) / (2 * sigma * sigma)); w.push(v); sum += v; }
+      for (let i = 0; i < w.length; i++) w[i] /= sum;
+      const tmp = new Float32Array(W * H * 3), out = new Uint8ClampedArray(src.length);
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) for (let c = 0; c < 3; c++) {
+        let a = 0;
+        for (let j = -r; j <= r; j++) { const xx = Math.min(W - 1, Math.max(0, x + j)); a += src[(y * W + xx) * 4 + c] * w[j + r]; }
+        tmp[(y * W + x) * 3 + c] = a;
+      }
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        for (let c = 0; c < 3; c++) {
+          let a = 0;
+          for (let j = -r; j <= r; j++) { const yy = Math.min(H - 1, Math.max(0, y + j)); a += tmp[(yy * W + x) * 3 + c] * w[j + r]; }
+          out[(y * W + x) * 4 + c] = a;
+        }
+        out[(y * W + x) * 4 + 3] = 255;
+      }
+      return out;
+    }
+
+    function render() {
+      const { c, s } = state;
+      document.getElementById('exBadge').textContent = s === 0 ? 'Clean' : `${NAMES[c]} · s = ${s}`;
+      document.getElementById('exFormula').textContent = s === 0 ? 'Clean DUO test image. Drag the slider to corrupt it.' : FORMULAS[c](s);
+      document.getElementById('sevOut').textContent = s;
+      document.getElementById('sev').value = s;
+      document.querySelectorAll('.seg button').forEach(b => b.setAttribute('aria-pressed', b.dataset.c === c));
+      for (const m of ['yolo', 'detr']) {
+        const v = val(m, c, s), id = m === 'yolo' ? 'roY' : 'roD';
+        document.getElementById(id).textContent = v.toFixed(3);
+        document.getElementById(id + 'd').textContent = s === 0 ? 'clean' : `${((v / CLEAN[m] - 1) * 100).toFixed(1)}% vs. clean`;
+      }
+      if (!base) return;
+      const src = base.data, out = new ImageData(W, H), o = out.data;
+      if (s === 0) { o.set(src); }
+      else if (c === 'blur') { o.set(gaussBlur(src, 1 + 2 * s)); }
+      else {
+        for (let p = 0, q = 0; p < src.length; p += 4, q += 3) {
+          let r = src[p], g = src[p + 1], b = src[p + 2];
+          if (c === 'attenuation') {
+            const k = 1 - .05 * s;
+            r = 128 + (r * (1 - .12 * s) - 128) * k; g = 128 + (g * (1 - .06 * s) - 128) * k; b = 128 + (b * (1 - .02 * s) - 128) * k;
+          } else if (c === 'haze') {
+            const a = .08 * s, k = 1 - .15 * s;
+            r = (.5 + (((1 - a) * r / 255 + a * .6) - .5) * k) * 255;
+            g = (.5 + (((1 - a) * g / 255 + a * .75) - .5) * k) * 255;
+            b = (.5 + (((1 - a) * b / 255 + a * .85) - .5) * k) * 255;
+          } else if (c === 'turbidity') {
+            const sd = 5 + 6 * s;
+            r += noise[q] * sd; g += noise[q + 1] * sd; b += noise[q + 2] * sd;
+          }
+          o[p] = r; o[p + 1] = g; o[p + 2] = b; o[p + 3] = 255;
+        }
+      }
+      ctx.putImageData(out, 0, 0);
+    }
+    listeners.push(render);
+    document.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => setState({ c: b.dataset.c, s: state.s || 3 })));
+    document.getElementById('sev').addEventListener('input', e => setState({ s: +e.target.value }));
+  })();
+
+  /* ---------- small multiples: mAP vs severity ---------- */
+  (function curves() {
+    const host = document.getElementById('curves');
+    const card = host.closest('.chart-card');
+    const tt = tooltip(card);
+    const order = ['attenuation', 'haze', 'turbidity', 'blur'];
+    const narrow = () => host.clientWidth < 620;
+    let svg;
+    function draw() {
+      host.innerHTML = '';
+      const cols = narrow() ? 2 : 4, rows = 4 / cols;
+      const PW = 240, PH = 190, W = PW * cols, H = PH * rows;
+      svg = el('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Four line charts of mAP versus corruption severity for YOLOv8 and DETR' }, host);
+      order.forEach((c, i) => {
+        const ox = (i % cols) * PW, oy = Math.floor(i / cols) * PH;
+        const m = { l: 34, r: 12, t: 30, b: 30 };
+        const g = el('g', { class: 'panel' + (c === state.c ? ' active' : ''), 'data-c': c, transform: `translate(${ox},${oy})` }, svg);
+        el('rect', { class: 'panel-bg', x: 4, y: 2, width: PW - 8, height: PH - 4, rx: 10 }, g);
+        el('text', { x: m.l, y: 20, class: 'ptitle' }, g).textContent = NAMES[c];
+        const x = s => m.l + s / 5 * (PW - m.l - m.r);
+        const y = v => m.t + (0.7 - v) / 0.7 * (PH - m.t - m.b);
+        [0, .2, .4, .6].forEach(v => {
+          el('line', { x1: m.l, x2: PW - m.r, y1: y(v), y2: y(v), stroke: 'var(--grid)' }, g);
+          el('text', { x: m.l - 6, y: y(v) + 4, 'text-anchor': 'end' }, g).textContent = v.toFixed(1);
+        });
+        [0, 1, 2, 3, 4, 5].forEach(s => el('text', { x: x(s), y: PH - m.b + 16, 'text-anchor': 'middle' }, g).textContent = s);
+        if (c === state.c) el('line', { x1: x(state.s), x2: x(state.s), y1: m.t, y2: PH - m.b, stroke: 'var(--text-3)', 'stroke-dasharray': '3 3' }, g);
+        for (const [mdl, col] of [['detr', 'var(--s2)'], ['yolo', 'var(--s1)']]) {
+          const pts = [0, 1, 2, 3, 4, 5].map(s => [x(s), y(val(mdl, c, s))]);
+          el('path', { d: 'M' + pts.map(p => p.join(' ')).join('L'), fill: 'none', stroke: col, 'stroke-width': 2, 'stroke-linejoin': 'round' }, g);
+          pts.forEach(([px, py], s) => {
+            const on = c === state.c && s === state.s;
+            el('circle', { cx: px, cy: py, r: on ? 5 : 3, fill: col, stroke: 'var(--surface)', 'stroke-width': on ? 2 : 1 }, g);
+          });
+        }
+        [0, 1, 2, 3, 4, 5].forEach(s => {
+          const hit = el('rect', { class: 'hit', x: x(s) - (PW - m.l - m.r) / 10, y: m.t, width: (PW - m.l - m.r) / 5, height: PH - m.t - m.b }, g);
+          const html = `<b>${NAMES[c]} · severity ${s}</b><br>YOLOv8 ${val('yolo', c, s).toFixed(3)}<br>DETR ${val('detr', c, s).toFixed(3)}`;
+          hit.addEventListener('mousemove', e => tt.show(html, e));
+          hit.addEventListener('mouseleave', tt.hide);
+          hit.addEventListener('click', () => setState({ c, s }));
+        });
+        g.addEventListener('click', e => { if (e.target.classList.contains('hit')) return; setState({ c, s: state.s || 3 }); });
+      });
+    }
+    listeners.push(draw);
+    window.addEventListener('resize', (() => { let n = narrow(); return () => { if (narrow() !== n) { n = narrow(); draw(); } }; })());
+    draw();
+  })();
+
+  /* ---------- retention bars ---------- */
+  (function retention() {
+    const data = [['DUO → RUOD', 56.4, 66.2], ['RUOD → DUO', 40.3, 29.9]];
+    const host = document.getElementById('retention');
+    const card = host.closest('.chart-card');
+    const tt = tooltip(card);
+    const W = 900, rowH = 58, bh = 18, gap = 2, m = { l: 110, r: 56, t: 4, b: 28 };
+    const H = m.t + data.length * rowH + m.b;
+    const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Bar chart of mAP retention per transfer direction for YOLOv8 and DETR' }, host);
+    const x = v => m.l + v / 100 * (W - m.l - m.r);
+    [0, 25, 50, 75, 100].forEach(v => {
+      el('line', { x1: x(v), x2: x(v), y1: m.t, y2: H - m.b, stroke: 'var(--grid)' }, svg);
+      el('text', { x: x(v), y: H - m.b + 18, 'text-anchor': 'middle' }, svg).textContent = v + '%';
+    });
+    const bar = (x0, y0, w, h, fill) => {
+      const r = Math.min(4, w);
+      el('path', { d: `M${x0} ${y0}H${x0 + w - r}Q${x0 + w} ${y0} ${x0 + w} ${y0 + r}V${y0 + h - r}Q${x0 + w} ${y0 + h} ${x0 + w - r} ${y0 + h}H${x0}Z`, fill }, svg);
+    };
+    data.forEach(([name, yv, dv], i) => {
+      const y0 = m.t + i * rowH + (rowH - 2 * bh - gap) / 2;
+      el('text', { x: m.l - 12, y: y0 + bh + 5, 'text-anchor': 'end', class: 'lbl' }, svg).textContent = name;
+      bar(m.l, y0, x(yv) - m.l, bh, 'var(--s1)');
+      bar(m.l, y0 + bh + gap, x(dv) - m.l, bh, 'var(--s2)');
+      el('text', { x: x(yv) + 6, y: y0 + bh - 4 }, svg).textContent = yv.toFixed(1) + '%';
+      el('text', { x: x(dv) + 6, y: y0 + 2 * bh + gap - 4 }, svg).textContent = dv.toFixed(1) + '%';
+      const hit = el('rect', { x: 0, y: m.t + i * rowH, width: W, height: rowH, class: 'hit' }, svg);
+      const html = `<b>${name}</b><br>YOLOv8 retains ${yv}%<br>DETR retains ${dv}%`;
+      hit.addEventListener('mousemove', e => tt.show(html, e));
+      hit.addEventListener('mouseleave', tt.hide);
+    });
+  })();
+
+  /* ---------- KaTeX ---------- */
+  window.addEventListener('load', () => {
+    document.querySelectorAll('[data-tex]').forEach(n => {
+      if (window.katex) katex.render(n.dataset.tex, n, { throwOnError: false, displayMode: false });
+      else n.textContent = n.dataset.tex;
+    });
+  });
+
+  /* ---------- theme toggle ---------- */
+  document.querySelector('.theme-toggle').addEventListener('click', () => {
+    const r = document.documentElement, dark = r.dataset.theme !== 'dark';
+    if (dark) r.dataset.theme = 'dark'; else delete r.dataset.theme;
+    try { localStorage.setItem('theme', dark ? 'dark' : 'light'); } catch (e) {}
+  });
+
+  /* ---------- copy bibtex ---------- */
+  const btn = document.querySelector('.copy');
+  btn.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(document.getElementById('bibtex').textContent); btn.textContent = 'Copied'; }
+    catch { btn.textContent = 'Select & copy'; }
+    setTimeout(() => (btn.textContent = 'Copy'), 1600);
+  });
+})();
+</script>
+</body>
+</html>
